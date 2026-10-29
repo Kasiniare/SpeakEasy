@@ -205,13 +205,26 @@ export async function visiblePosts(bartenderId) {
 export async function tip(bartenderId, amountCents) {
   const uid = await currentUserId();
   // PoC-only direct insert (payments_payer_insert). In production this row is
-  // written by a Stripe webhook using the service role.
+  // written by the Stripe webhook using the service role.
   return unwrap(
     await supabase
       .from("payments")
       .insert({ payer_id: uid, payee_bartender_id: bartenderId, kind: "tip", amount_cents: amountCents })
       .select()
   );
+}
+
+// Starts a Stripe Checkout Session via the create-checkout Edge Function and
+// returns its hosted URL. Throws if the function is not deployed or errors,
+// which lets the caller fall back to the demo tip above.
+export async function startCheckout(bartenderId, amountCents, kind = "tip") {
+  const { data, error } = await supabase.functions.invoke("create-checkout", {
+    body: { bartenderId, amountCents, kind, returnUrl: window.location.origin },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  if (!data?.url) throw new Error("No checkout URL returned");
+  return data.url;
 }
 
 // ---------- Bar ----------

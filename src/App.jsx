@@ -394,7 +394,17 @@ function PatronApp({ onError, ping }) {
       </div>
 
       {tipOpen && <TipSheet name={sel?.display_name?.split(" ")[0]} close={() => setTipOpen(false)}
-        send={(amt) => act(() => q.tip(sel.id, amt), `Sent ${money(amt)}`).then(() => setTipOpen(false))} />}
+        send={async (amt) => {
+          setTipOpen(false);
+          try {
+            // Real path: Stripe Checkout via the Edge Function. Redirects away.
+            const url = await q.startCheckout(sel.id, amt, "tip");
+            window.location.href = url;
+          } catch {
+            // Fallback until the Edge Functions are deployed: record a demo tip.
+            await act(() => q.tip(sel.id, amt), `Sent ${money(amt)} (demo, Stripe not deployed yet)`);
+          }
+        }} />}
 
       <p style={s.caption}>Signed in as a patron. Locked content is absent, not hidden: RLS filters it before it leaves the database.</p>
     </div>
