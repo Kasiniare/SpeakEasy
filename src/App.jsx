@@ -349,13 +349,18 @@ function PatronApp({ onError, ping }) {
                   {Array.isArray(t.perks) && (
                     <ul style={s.perks}>{t.perks.map((p, i) => <li key={i} style={s.perk}><Check size={12} color={C.brass} /> {p}</li>)}</ul>
                   )}
-                  {!approved || (mySub.tiers?.rank ?? 0) < t.rank ? (
-                    <button onClick={() => act(() => q.requestSubscription(sel.id, t.id), "Request sent")} style={s.joinBtn}>
-                      {mySub?.status === "pending" ? "Request pending" : "Request to join"}
-                    </button>
-                  ) : (
-                    <div style={s.youreIn}><Check size={13} color={C.approve} /> You're in at this level</div>
-                  )}
+                  {(() => {
+                    const curRank = approved ? (mySub.tiers?.rank ?? 0) : -1;
+                    if (approved && curRank === t.rank)
+                      return <div style={s.youreIn}><Check size={13} color={C.approve} /> You're in at this level</div>;
+                    if (mySub?.status === "pending" && mySub.tiers?.rank === t.rank)
+                      return <button disabled style={{ ...s.joinBtn, opacity: 0.5 }}>Request pending</button>;
+                    const label = approved && t.rank > curRank ? "Request upgrade"
+                      : mySub?.status === "demoted" ? "Re-request this tier"
+                      : "Request to join";
+                    const msg = label === "Request upgrade" ? "Upgrade requested, awaiting approval" : "Request sent";
+                    return <button onClick={() => act(() => q.requestSubscription(sel.id, t.id), msg)} style={s.joinBtn}>{label}</button>;
+                  })()}
                 </div>
               ))}
 

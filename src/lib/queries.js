@@ -166,11 +166,17 @@ export async function mySubscriptions() {
 
 export async function requestSubscription(bartenderId, tierId) {
   const uid = await currentUserId();
-  // Must insert as 'pending' with patron_id = self (subs_patron_insert).
+  // Upsert so a first subscription inserts and an upgrade / re-request updates
+  // the existing row. Either way the row lands at 'pending'; only the bartender
+  // can move it to 'approved' (subs_patron_insert, subs_patron_rerequest,
+  // subs_bartender_decide in migrations 0001 and 0002).
   return unwrap(
     await supabase
       .from("subscriptions")
-      .insert({ patron_id: uid, bartender_id: bartenderId, tier_id: tierId, status: "pending" })
+      .upsert(
+        { patron_id: uid, bartender_id: bartenderId, tier_id: tierId, status: "pending" },
+        { onConflict: "patron_id,bartender_id" }
+      )
       .select()
   );
 }
