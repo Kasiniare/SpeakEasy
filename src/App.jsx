@@ -53,12 +53,25 @@ const scopeLabel = (v, r) =>
   r === 1 ? "Regulars" : r === 2 ? "Inner Circle" : r === 3 ? "Top Shelf" : "Members";
 const initials = (name) => (name || "?").split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
+// One responsive codebase: components branch on viewport width instead of CSS
+// media queries, since the UI is built with inline styles.
+function useViewport() {
+  const [w, setW] = useState(typeof window !== "undefined" ? window.innerWidth : 1024);
+  useEffect(() => {
+    const on = () => setW(window.innerWidth);
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  return w;
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [roles, setRoles] = useState([]);
   const [active, setActive] = useState(null);
   const [toast, setToast] = useState(null);
   const [err, setErr] = useState(null);
+  const w = useViewport();
 
   const ping = useCallback((t) => { setToast(t); setTimeout(() => setToast(null), 2400); }, []);
 
@@ -80,7 +93,7 @@ export default function App() {
       <header style={s.topbar}>
         <span style={s.mark}>◊</span>
         <span style={s.brandName}>SPEAKEASY</span>
-        <span style={s.live}><span style={s.liveDot} /> live on RLS</span>
+        {w >= 560 && <span style={s.live}><span style={s.liveDot} /> live on RLS</span>}
         {session && roles.length > 1 && (
           <div style={s.segmented}>
             {roles.map((r) => {
@@ -153,6 +166,7 @@ function BartenderStudio({ onError, ping }) {
   const [followers, setFollowers] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [reqs, setReqs] = useState([]);
+  const w = useViewport();
 
   const load = useCallback(async () => {
     try {
@@ -186,7 +200,7 @@ function BartenderStudio({ onError, ping }) {
       </div>
 
       {metrics && (
-        <div style={s.metricGrid}>
+        <div style={{ ...s.metricGrid, gridTemplateColumns: w < 640 ? "repeat(2,1fr)" : "repeat(4,1fr)" }}>
           <Metric icon={Users} label="Followers" value={metrics.followers} />
           <Metric icon={Layers} label="Subscribers" value={metrics.subscribers} />
           <Metric icon={Wallet} label="Revenue" value={money(metrics.revenue_cents)} note="only you can read this" />
@@ -303,94 +317,100 @@ function PatronApp({ onError, ping }) {
   const mySub = sel ? subFor(sel.id) : null;
   const approved = mySub?.status === "approved";
   const myRank = approved ? (mySub.tiers?.rank ?? 0) : 0;
+  const w = useViewport();
+  const desktop = w >= 900;
+
+  const discover = (
+    <div style={desktop ? s.discCol : undefined}>
+      <div style={s.phoneEyebrow}>Discover</div>
+      {bartenders.map((b) => {
+        const sb = subFor(b.id);
+        return (
+          <button key={b.id} onClick={() => setSel(b)} style={{ ...s.discCard, ...(sel?.id === b.id ? s.discOn : {}) }}>
+            <div style={s.avMd}>{initials(b.display_name)}</div>
+            <div style={{ flex: 1, textAlign: "left" }}>
+              <div style={s.rowMain}>{b.display_name}</div>
+              <div style={s.rowSub}>{b.specialty}</div>
+            </div>
+            {sb ? <Status s={sb.status} /> : <Lock size={14} color={C.muted} />}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const detail = sel && (
+    <div style={{ maxWidth: desktop ? 600 : "none" }}>
+      <div style={{ ...s.profBlock, ...(desktop ? { borderTop: "none", marginTop: 0, paddingTop: 2 } : {}) }} className="rise">
+        <div style={s.avLg}>{initials(sel.display_name)}</div>
+        <div style={s.profName}>{sel.display_name}</div>
+        <div style={s.profHandle}>{sel.handle ? `@${sel.handle}` : ""} · {sel.specialty}</div>
+        {approved && <span style={s.memberPill}><BadgeCheck size={13} /> {mySub.tiers?.name} member</span>}
+        {mySub?.status === "pending" && <span style={s.pendPill}><Clock size={13} /> Awaiting approval</span>}
+        {mySub?.status === "demoted" && <span style={s.pendPill}><ArrowDown size={13} /> Demoted</span>}
+      </div>
+
+      {approved && (
+        <button onClick={() => setTipOpen(true)} style={s.tipBtn}><Heart size={15} /> Tip {sel.display_name.split(" ")[0]} directly</button>
+      )}
+
+      <div style={s.phoneSection}>Tiers</div>
+      {tiers.map((t) => (
+        <div key={t.id} style={s.tierCard}>
+          <div style={s.tierHead}>
+            <span style={s.tierName}>{t.name} {t.rank === 3 && <Crown size={13} color={C.brass} />}</span>
+            <span style={s.tierPrice}>{money(t.price_cents)}<span style={s.mo}>/mo</span></span>
+          </div>
+          {Array.isArray(t.perks) && (
+            <ul style={s.perks}>{t.perks.map((p, i) => <li key={i} style={s.perk}><Check size={12} color={C.brass} /> {p}</li>)}</ul>
+          )}
+          {(() => {
+            const curRank = approved ? (mySub.tiers?.rank ?? 0) : -1;
+            if (approved && curRank === t.rank)
+              return <div style={s.youreIn}><Check size={13} color={C.approve} /> You're in at this level</div>;
+            if (mySub?.status === "pending" && mySub.tiers?.rank === t.rank)
+              return <button disabled style={{ ...s.joinBtn, opacity: 0.5 }}>Request pending</button>;
+            const label = approved && t.rank > curRank ? "Request upgrade"
+              : mySub?.status === "demoted" ? "Re-request this tier"
+              : "Request to join";
+            const msg = label === "Request upgrade" ? "Upgrade requested, awaiting approval" : "Request sent";
+            return <button onClick={() => act(() => q.requestSubscription(sel.id, t.id), msg)} style={s.joinBtn}>{label}</button>;
+          })()}
+        </div>
+      ))}
+
+      <div style={s.phoneSection}><Calendar size={13} /> Shifts you can see</div>
+      {shifts.length === 0 && <Empty>Nothing visible yet. Approval at a tier unlocks shifts.</Empty>}
+      {shifts.map((sh) => (
+        <div key={sh.id} style={s.pRow}>
+          <DateChip iso={sh.starts_at} />
+          <div style={{ flex: 1 }}>
+            <div style={s.rowMain}>{sh.venues?.name ?? "Venue"}</div>
+            <div style={s.rowSub}>{when(sh.starts_at)}</div>
+          </div>
+          <ScopePill v={sh.visibility} r={sh.min_tier_rank} />
+        </div>
+      ))}
+      {approved && myRank < 3 && (
+        <div style={s.unlockNote}><Lock size={12} /> Higher tiers unlock more. Content above your tier isn't sent to your device at all.</div>
+      )}
+
+      <div style={s.phoneSection}><Sparkles size={13} /> Posts you can see</div>
+      {posts.length === 0 && <Empty>No posts unlocked at your tier.</Empty>}
+      {posts.map((p) => (
+        <div key={p.id} style={s.pRow}>
+          <span style={s.kind}>{p.kind}</span>
+          <div style={{ flex: 1 }}><div style={s.rowMain}>{p.title}</div></div>
+        </div>
+      ))}
+    </div>
+  );
 
   return (
-    <div style={s.phoneWrap}>
-      <div style={s.phone}>
-        <div style={s.statusbar}><span>9:41</span><span style={{ letterSpacing: 1 }}>SPEAKEASY</span><span>●●●</span></div>
-        <div style={s.phoneScroll}>
-          <div style={s.phoneEyebrow}>Discover</div>
-          {bartenders.map((b) => {
-            const sb = subFor(b.id);
-            return (
-              <button key={b.id} onClick={() => setSel(b)} style={{ ...s.discCard, ...(sel?.id === b.id ? s.discOn : {}) }}>
-                <div style={s.avMd}>{initials(b.display_name)}</div>
-                <div style={{ flex: 1, textAlign: "left" }}>
-                  <div style={s.rowMain}>{b.display_name}</div>
-                  <div style={s.rowSub}>{b.specialty}</div>
-                </div>
-                {sb ? <Status s={sb.status} /> : <Lock size={14} color={C.muted} />}
-              </button>
-            );
-          })}
-
-          {sel && (
-            <>
-              <div style={s.profBlock} className="rise">
-                <div style={s.avLg}>{initials(sel.display_name)}</div>
-                <div style={s.profName}>{sel.display_name}</div>
-                <div style={s.profHandle}>{sel.handle ? `@${sel.handle}` : ""} · {sel.specialty}</div>
-                {approved && <span style={s.memberPill}><BadgeCheck size={13} /> {mySub.tiers?.name} member</span>}
-                {mySub?.status === "pending" && <span style={s.pendPill}><Clock size={13} /> Awaiting approval</span>}
-                {mySub?.status === "demoted" && <span style={s.pendPill}><ArrowDown size={13} /> Demoted</span>}
-              </div>
-
-              {approved && (
-                <button onClick={() => setTipOpen(true)} style={s.tipBtn}><Heart size={15} /> Tip {sel.display_name.split(" ")[0]} directly</button>
-              )}
-
-              <div style={s.phoneSection}>Tiers</div>
-              {tiers.map((t) => (
-                <div key={t.id} style={s.tierCard}>
-                  <div style={s.tierHead}>
-                    <span style={s.tierName}>{t.name} {t.rank === 3 && <Crown size={13} color={C.brass} />}</span>
-                    <span style={s.tierPrice}>{money(t.price_cents)}<span style={s.mo}>/mo</span></span>
-                  </div>
-                  {Array.isArray(t.perks) && (
-                    <ul style={s.perks}>{t.perks.map((p, i) => <li key={i} style={s.perk}><Check size={12} color={C.brass} /> {p}</li>)}</ul>
-                  )}
-                  {(() => {
-                    const curRank = approved ? (mySub.tiers?.rank ?? 0) : -1;
-                    if (approved && curRank === t.rank)
-                      return <div style={s.youreIn}><Check size={13} color={C.approve} /> You're in at this level</div>;
-                    if (mySub?.status === "pending" && mySub.tiers?.rank === t.rank)
-                      return <button disabled style={{ ...s.joinBtn, opacity: 0.5 }}>Request pending</button>;
-                    const label = approved && t.rank > curRank ? "Request upgrade"
-                      : mySub?.status === "demoted" ? "Re-request this tier"
-                      : "Request to join";
-                    const msg = label === "Request upgrade" ? "Upgrade requested, awaiting approval" : "Request sent";
-                    return <button onClick={() => act(() => q.requestSubscription(sel.id, t.id), msg)} style={s.joinBtn}>{label}</button>;
-                  })()}
-                </div>
-              ))}
-
-              <div style={s.phoneSection}><Calendar size={13} /> Shifts you can see</div>
-              {shifts.length === 0 && <Empty>Nothing visible yet. Approval at a tier unlocks shifts.</Empty>}
-              {shifts.map((sh) => (
-                <div key={sh.id} style={s.pRow}>
-                  <DateChip iso={sh.starts_at} />
-                  <div style={{ flex: 1 }}>
-                    <div style={s.rowMain}>{sh.venues?.name ?? "Venue"}</div>
-                    <div style={s.rowSub}>{when(sh.starts_at)}</div>
-                  </div>
-                  <ScopePill v={sh.visibility} r={sh.min_tier_rank} />
-                </div>
-              ))}
-              {approved && myRank < 3 && (
-                <div style={s.unlockNote}><Lock size={12} /> Higher tiers unlock more. Content above your tier isn't sent to your device at all.</div>
-              )}
-
-              <div style={s.phoneSection}><Sparkles size={13} /> Posts you can see</div>
-              {posts.length === 0 && <Empty>No posts unlocked at your tier.</Empty>}
-              {posts.map((p) => (
-                <div key={p.id} style={s.pRow}>
-                  <span style={s.kind}>{p.kind}</span>
-                  <div style={{ flex: 1 }}><div style={s.rowMain}>{p.title}</div></div>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
+    <div style={s.patronWrap}>
+      <div style={desktop ? s.patronGrid : s.patronStack}>
+        {discover}
+        {detail}
       </div>
 
       {tipOpen && <TipSheet name={sel?.display_name?.split(" ")[0]} close={() => setTipOpen(false)}
@@ -417,6 +437,7 @@ function BarConsole({ onError, ping }) {
   const [signals, setSignals] = useState([]);
   const [grants, setGrants] = useState([]);
   const [peek, setPeek] = useState({});
+  const w = useViewport();
 
   const load = useCallback(async () => {
     try {
@@ -448,7 +469,7 @@ function BarConsole({ onError, ping }) {
       </div>
 
       <Panel title="What a venue can, and cannot, see">
-        <div style={s.compareGrid}>
+        <div style={{ ...s.compareGrid, gridTemplateColumns: w < 560 ? "1fr" : "1fr 1fr" }}>
           <div style={s.compareCol}>
             <div style={{ ...s.compareHead, color: C.approve }}><Eye size={14} /> Visible</div>
             {["Favored / trending signals", "Follower bands", "Granted schedules only"].map((x) =>
@@ -600,7 +621,7 @@ const s = {
   root: { minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'Jost', sans-serif",
     backgroundImage: "radial-gradient(circle at 50% -10%, rgba(201,163,91,0.09), transparent 55%)" },
   topbar: { display: "flex", alignItems: "center", gap: 12, padding: "14px 22px", borderBottom: `1px solid ${C.line}`,
-    position: "sticky", top: 0, background: "rgba(20,16,11,0.9)", backdropFilter: "blur(12px)", zIndex: 20 },
+    position: "sticky", top: 0, background: "rgba(20,16,11,0.9)", backdropFilter: "blur(12px)", zIndex: 20, flexWrap: "wrap", rowGap: 8 },
   mark: { width: 30, height: 30, display: "grid", placeItems: "center", borderRadius: 8, border: `1px solid ${C.brass}`, color: C.brass, fontSize: 16 },
   brandName: { fontFamily: "'Cormorant Garamond', serif", fontWeight: 700, fontSize: 19, letterSpacing: 1.5 },
   live: { display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 20, padding: "4px 11px" },
@@ -679,7 +700,13 @@ const s = {
   input: { width: "100%", background: C.raised, color: C.text, border: `1px solid ${C.line}`, borderRadius: 9, padding: "11px 12px", fontSize: 14 },
   primary: { width: "100%", marginTop: 18, background: C.brass, color: "#1a1206", borderRadius: 10, padding: 13, fontSize: 15, fontWeight: 600 },
 
-  /* patron phone */
+  /* patron, responsive */
+  patronWrap: { maxWidth: 1040, margin: "0 auto", padding: "24px 20px 70px" },
+  patronGrid: { display: "grid", gridTemplateColumns: "300px 1fr", gap: 26, alignItems: "start" },
+  patronStack: { maxWidth: 480, margin: "0 auto" },
+  discCol: { position: "sticky", top: 80, alignSelf: "start" },
+
+  /* patron phone (legacy frame styles, kept for reference) */
   phoneWrap: { display: "flex", flexDirection: "column", alignItems: "center", padding: "24px 16px 60px" },
   phone: { width: 390, maxWidth: "100%", height: 760, maxHeight: "80vh", background: C.frame, borderRadius: 42, border: `1px solid ${C.line}`,
     overflow: "hidden", boxShadow: "0 30px 70px rgba(0,0,0,0.55), inset 0 0 0 5px #0c0a07", display: "flex", flexDirection: "column" },

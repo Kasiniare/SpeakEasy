@@ -35,12 +35,14 @@ Three roles, one backend:
 - Payments: Stripe Connect, test mode. Code committed, not yet deployed. See
   STRIPE.md.
 
-Note on "web" vs "mobile": this is already a web app. The patron view is drawn
-inside a phone frame as a layout choice; the bartender and bar views are desktop
-width. A true native mobile app (iOS/Android) would be a separate client (React
-Native / Expo or a PWA) pointed at the same Supabase backend. Because the
-backend is shared, any web client and any mobile client sync automatically
-through one source of truth, with RLS applying identically to each.
+Note on "web" vs "mobile": this is one responsive web app. It adapts by
+viewport width (a useViewport hook, since the UI uses inline styles): on desktop
+the patron view is a two-column discover-plus-detail layout and metric grids are
+four wide; on phones everything collapses to a single column. A true native
+mobile app (iOS/Android) would be a separate client (React Native / Expo or a
+PWA) pointed at the same Supabase backend. Because the backend is shared, any
+web client and any mobile client sync automatically through one source of truth,
+with RLS applying identically to each.
 
 ## The privacy model (the spine)
 
@@ -148,8 +150,6 @@ Stripe account yet.
 
 ## Suggested next steps
 
-- Responsive web layout: free the patron view from the phone frame into a
-  desktop-first responsive layout so the whole app reads as a proper website.
 - Deploy and test the Stripe path.
 - Realtime: Supabase Realtime can push live updates (a new follower approval, a
   granted shift) to any connected client without a refresh.
