@@ -30,7 +30,9 @@ Three roles, one backend:
 ## Stack
 
 - Frontend: React 18 + Vite. One web app serving all three roles. Deployed as a
-  static build to Vercel.
+  static build to Vercel. Two themes ("after dark" and a light "last call"
+  parlor) via palette/style factories, toggled in the top bar and remembered in
+  localStorage. Copy leans into speakeasy language throughout.
 - Backend: Supabase (Postgres database, Auth, Row Level Security). Free tier.
 - Payments: Stripe Connect, test mode. Code committed, not yet deployed. See
   STRIPE.md.

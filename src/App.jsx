@@ -4,7 +4,7 @@ import * as q from "./lib/queries.js";
 import {
   Wine, User, Building2, Lock, Globe, Sparkles, Crown, Calendar, Heart,
   Check, X, ArrowDown, TrendingUp, Flame, Users, MapPin, ShieldCheck,
-  BadgeCheck, Clock, Eye, Wallet, Layers, LogOut, Gift, Camera, Upload, Film
+  BadgeCheck, Clock, Eye, Wallet, Layers, LogOut, Gift, Camera, Upload, Film, Moon, Sun
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -16,11 +16,32 @@ import {
 
 const FONTS =
   "@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Jost:wght@300;400;500;600&display=swap');";
-const C = {
-  bg: "#14100b", frame: "#1a1510", panel: "#1d1813", raised: "#261f16", line: "rgba(201,163,91,0.16)",
-  brass: "#c9a35b", brassHi: "#e7cc8e", text: "#f1eadd", muted: "#9a8f7c",
-  approve: "#7ba36f", pending: "#d8a64a", block: "#bf5b4f", blue: "#7fa8c9",
+// Two moods, one speakeasy: "after dark" (brass on near-black) and "last call"
+// a warm daytime parlor (bronze on parchment). Styles are built from whichever
+// palette is active, so the toggle flips the whole room.
+const PALETTES = {
+  dark: {
+    bg: "#14100b", frame: "#1a1510", panel: "#1d1813", raised: "#261f16", line: "rgba(201,163,91,0.16)",
+    brass: "#c9a35b", brassHi: "#e7cc8e", text: "#f1eadd", muted: "#9a8f7c",
+    approve: "#7ba36f", pending: "#d8a64a", block: "#bf5b4f", blue: "#7fa8c9",
+    headerBg: "rgba(20,16,11,0.9)", glow: "rgba(201,163,91,0.10)",
+  },
+  light: {
+    bg: "#f4ede0", frame: "#efe6d5", panel: "#fbf6ec", raised: "#f1e8d6", line: "rgba(123,86,28,0.20)",
+    brass: "#a9761f", brassHi: "#7c5214", text: "#2b2117", muted: "#6d6153",
+    approve: "#4f7a43", pending: "#8a6410", block: "#a23b2f", blue: "#3f6f98",
+    headerBg: "rgba(244,237,224,0.9)", glow: "rgba(169,118,31,0.10)",
+  },
 };
+let appliedMode = "dark";
+let C = PALETTES.dark;
+function applyTheme(mode) {
+  if (mode === appliedMode) return;
+  appliedMode = mode;
+  C = PALETTES[mode] || PALETTES.dark;
+  s = makeStyles(C);
+  CSS = makeCSS(C);
+}
 
 const ACCOUNTS = [
   { label: "Remy, bartender", email: "remy@speakeasy.test" },
@@ -71,7 +92,12 @@ export default function App() {
   const [active, setActive] = useState(null);
   const [toast, setToast] = useState(null);
   const [err, setErr] = useState(null);
+  const [mode, setMode] = useState(() => {
+    try { return localStorage.getItem("speakeasy-theme") || "dark"; } catch { return "dark"; }
+  });
+  applyTheme(mode);
   const w = useViewport();
+  useEffect(() => { try { localStorage.setItem("speakeasy-theme", mode); } catch { /* ignore */ } }, [mode]);
 
   const ping = useCallback((t) => { setToast(t); setTimeout(() => setToast(null), 2400); }, []);
 
@@ -93,7 +119,7 @@ export default function App() {
       <header style={s.topbar}>
         <span style={s.mark}>◊</span>
         <span style={s.brandName}>SPEAKEASY</span>
-        {w >= 560 && <span style={s.live}><span style={s.liveDot} /> live on RLS</span>}
+        {w >= 560 && <span style={s.live}><span style={s.liveDot} /> velvet rope: up</span>}
         {session && roles.length > 1 && (
           <div style={s.segmented}>
             {roles.map((r) => {
@@ -106,9 +132,15 @@ export default function App() {
             })}
           </div>
         )}
-        {session && (
-          <button onClick={() => q.signOut()} style={s.signout}><LogOut size={14} /> Sign out</button>
-        )}
+        <div style={s.rightControls}>
+          <button onClick={() => setMode(mode === "dark" ? "light" : "dark")} style={s.themeBtn}
+            title={mode === "dark" ? "Raise the blinds (light)" : "Dim the lights (dark)"}>
+            {mode === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
+          {session && (
+            <button onClick={() => q.signOut()} style={s.signout}><LogOut size={14} /> Last call</button>
+          )}
+        </div>
       </header>
 
       {err && <div style={s.err} onClick={() => setErr(null)}>{err}  (tap to dismiss)</div>}
@@ -145,7 +177,7 @@ function SignIn({ onError }) {
       <div style={s.signinCard} className="rise">
         <div style={s.signinMark}>◊</div>
         <div style={s.h2}>Members only</div>
-        <p style={s.sub}>Pick a seeded account. What each one sees is decided by the database, not this screen.</p>
+        <p style={s.sub}>Give the word and step inside. What each guest sees is set by the house, not this door.</p>
         <label style={s.lbl}>Account</label>
         <select value={email} onChange={(e) => setEmail(e.target.value)} style={s.input}>
           {ACCOUNTS.map((a) => <option key={a.email} value={a.email}>{a.label}</option>)}
@@ -153,7 +185,7 @@ function SignIn({ onError }) {
         <label style={s.lbl}>Password</label>
         <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" style={s.input}
           onKeyDown={(e) => e.key === "Enter" && go()} />
-        <button onClick={go} disabled={busy} style={s.primary}>{busy ? "Opening the door…" : "Enter"}</button>
+        <button onClick={go} disabled={busy} style={s.primary}>{busy ? "Checking the list…" : "Step inside"}</button>
       </div>
     </div>
   );
@@ -199,7 +231,7 @@ function BartenderStudio({ onError, ping }) {
 
   const followersPanel = (
     <Panel title={`Followers${pending.length ? ` · ${pending.length} awaiting you` : ""}`}>
-      {sorted.length === 0 && <Empty>No followers yet.</Empty>}
+      {sorted.length === 0 && <Empty>Nobody's pulled up a stool yet.</Empty>}
       {sorted.map((f) => (
         <Row key={f.id}>
           <Avatar url={f.patron?.avatar_url} name={f.patron?.display_name} size={40} />
@@ -227,7 +259,7 @@ function BartenderStudio({ onError, ping }) {
   );
 
   const shiftsPanel = (
-    <Panel title="Shifts · set visibility">
+    <Panel title="Shifts · the guest list">
       {shifts.map((sh) => (
         <Row key={sh.id}>
           <DateChip iso={sh.starts_at} />
@@ -251,14 +283,14 @@ function BartenderStudio({ onError, ping }) {
   );
 
   const mediaPanel = (
-    <Panel title="Media gallery">
+    <Panel title="The gallery">
       <MediaManager items={media} onUpload={uploadMedia} onDelete={removeMedia} busy={mediaBusy} />
     </Panel>
   );
 
   const barReqPanel = (
     <Panel title="Bar requests">
-      {reqs.length === 0 && <Empty>No requests.</Empty>}
+      {reqs.length === 0 && <Empty>No houses calling.</Empty>}
       {reqs.map((r) => (
         <Row key={r.id}>
           <div style={s.barIcon}><Building2 size={18} color={C.brass} /></div>
@@ -290,14 +322,14 @@ function BartenderStudio({ onError, ping }) {
           <h1 style={s.h1}>{me.display_name}</h1>
           <div style={s.subline}>{me.specialty}{me.handle ? ` · @${me.handle}` : ""}</div>
         </div>
-        <div style={s.priorityTag}><ShieldCheck size={14} /> You control who sees what</div>
+        <div style={s.priorityTag}><ShieldCheck size={14} /> Your room, your rules</div>
       </div>
 
       {metrics && (
         <div style={{ ...s.metricGrid, gridTemplateColumns: w < 640 ? "repeat(2,1fr)" : "repeat(4,1fr)" }}>
           <Metric icon={Users} label="Followers" value={metrics.followers} />
           <Metric icon={Layers} label="Subscribers" value={metrics.subscribers} />
-          <Metric icon={Wallet} label="Revenue" value={money(metrics.revenue_cents)} note="only you can read this" />
+          <Metric icon={Wallet} label="Revenue" value={money(metrics.revenue_cents)} note="for your eyes only" />
           <Metric icon={TrendingUp} label="Rank score" value={metrics.rank_score} note={metrics.trend_rank ? `trending #${metrics.trend_rank}` : null} />
         </div>
       )}
@@ -362,11 +394,11 @@ function PatronApp({ onError, ping }) {
             onPick={(f) => act(() => q.setPatronAvatar(f), "Photo updated")} />
           <div style={{ flex: 1 }}>
             <div style={s.rowMain}>{myProfile.display_name}</div>
-            <div style={s.rowSub}>Your profile</div>
+            <div style={s.rowSub}>Your tab</div>
           </div>
         </div>
       )}
-      <div style={s.phoneEyebrow}>Discover</div>
+      <div style={s.phoneEyebrow}>Who's pouring</div>
       {bartenders.map((b) => {
         const sb = subFor(b.id);
         return (
@@ -392,12 +424,12 @@ function PatronApp({ onError, ping }) {
         <div style={s.profName}>{sel.display_name}</div>
         <div style={s.profHandle}>{sel.handle ? `@${sel.handle}` : ""} · {sel.specialty}</div>
         {approved && <span style={s.memberPill}><BadgeCheck size={13} /> {mySub.tiers?.name} member</span>}
-        {mySub?.status === "pending" && <span style={s.pendPill}><Clock size={13} /> Awaiting approval</span>}
-        {mySub?.status === "demoted" && <span style={s.pendPill}><ArrowDown size={13} /> Demoted</span>}
+        {mySub?.status === "pending" && <span style={s.pendPill}><Clock size={13} /> On the list, waiting</span>}
+        {mySub?.status === "demoted" && <span style={s.pendPill}><ArrowDown size={13} /> Moved to the back</span>}
       </div>
 
       {approved && (
-        <button onClick={() => setTipOpen(true)} style={s.tipBtn}><Heart size={15} /> Tip {sel.display_name.split(" ")[0]} directly</button>
+        <button onClick={() => setTipOpen(true)} style={s.tipBtn}><Heart size={15} /> Slip {sel.display_name.split(" ")[0]} a little something</button>
       )}
 
       <div style={s.phoneSection}>Tiers</div>
@@ -413,20 +445,20 @@ function PatronApp({ onError, ping }) {
           {(() => {
             const curRank = approved ? (mySub.tiers?.rank ?? 0) : -1;
             if (approved && curRank === t.rank)
-              return <div style={s.youreIn}><Check size={13} color={C.approve} /> You're in at this level</div>;
+              return <div style={s.youreIn}><Check size={13} color={C.approve} /> You're in</div>;
             if (mySub?.status === "pending" && mySub.tiers?.rank === t.rank)
-              return <button disabled style={{ ...s.joinBtn, opacity: 0.5 }}>Request pending</button>;
-            const label = approved && t.rank > curRank ? "Request upgrade"
-              : mySub?.status === "demoted" ? "Re-request this tier"
-              : "Request to join";
-            const msg = label === "Request upgrade" ? "Upgrade requested, awaiting approval" : "Request sent";
+              return <button disabled style={{ ...s.joinBtn, opacity: 0.5 }}>At the door</button>;
+            const label = approved && t.rank > curRank ? "Move up"
+              : mySub?.status === "demoted" ? "Knock again"
+              : "Ask for an in";
+            const msg = label === "Move up" ? "Moving up, awaiting the nod" : "Ask sent";
             return <button onClick={() => act(() => q.requestSubscription(sel.id, t.id), msg)} style={s.joinBtn}>{label}</button>;
           })()}
         </div>
       ))}
 
       <div style={s.phoneSection}><Calendar size={13} /> Shifts you can see</div>
-      {shifts.length === 0 && <Empty>Nothing visible yet. Approval at a tier unlocks shifts.</Empty>}
+      {shifts.length === 0 && <Empty>Nothing on the list yet. Get waved in at a tier to see shifts.</Empty>}
       {shifts.map((sh) => (
         <div key={sh.id} style={s.pRow}>
           <DateChip iso={sh.starts_at} />
@@ -438,11 +470,11 @@ function PatronApp({ onError, ping }) {
         </div>
       ))}
       {approved && myRank < 3 && (
-        <div style={s.unlockNote}><Lock size={12} /> Higher tiers unlock more. Content above your tier isn't sent to your device at all.</div>
+        <div style={s.unlockNote}><Lock size={12} /> Higher tiers open more doors. Anything above your tier never leaves the back room.</div>
       )}
 
       <div style={s.phoneSection}><Sparkles size={13} /> Posts you can see</div>
-      {posts.length === 0 && <Empty>No posts unlocked at your tier.</Empty>}
+      {posts.length === 0 && <Empty>Nothing poured for your tier yet.</Empty>}
       {posts.map((p) => (
         <div key={p.id} style={s.pRow}>
           <span style={s.kind}>{p.kind}</span>
@@ -479,7 +511,7 @@ function PatronApp({ onError, ping }) {
           }
         }} />}
 
-      <p style={s.caption}>Signed in as a patron. Locked content is absent, not hidden: RLS filters it before it leaves the database.</p>
+      <p style={s.caption}>You're at the bar. What's locked isn't blurred, it's just never poured: the database doesn't send it.</p>
     </div>
   );
 }
@@ -530,7 +562,7 @@ function BarConsole({ onError, ping }) {
         </div>
       </div>
 
-      <Panel title="What a venue can, and cannot, see">
+      <Panel title="What the house sees · and what it doesn't">
         <div style={{ ...s.compareGrid, gridTemplateColumns: w < 560 ? "1fr" : "1fr 1fr" }}>
           <div style={s.compareCol}>
             <div style={{ ...s.compareHead, color: C.approve }}><Eye size={14} /> Visible</div>
@@ -545,8 +577,8 @@ function BarConsole({ onError, ping }) {
         </div>
       </Panel>
 
-      <Panel title="Favored talent · banded signals only">
-        {signals.length === 0 && <Empty>No bartenders have opted into bar discovery.</Empty>}
+      <Panel title="The talent · signals only">
+        {signals.length === 0 && <Empty>No one's stepped into the spotlight yet.</Empty>}
         {signals.map((sig) => {
           const g = grantFor(sig.bartender_id);
           const rows = peek[sig.bartender_id];
@@ -564,8 +596,8 @@ function BarConsole({ onError, ping }) {
                   </div>
                 </div>
                 {g ? <Status s={g.status} /> :
-                  <SmallBtn onClick={() => act(() => q.requestVisibility(sig.bartender_id, bar.bar_id, 2500), "Request sent, the bartender decides")}>
-                    <Eye size={13} /> Request visibility
+                  <SmallBtn onClick={() => act(() => q.requestVisibility(sig.bartender_id, bar.bar_id, 2500), "Ask sent, the bartender decides")}>
+                    <Eye size={13} /> Ask for the schedule
                   </SmallBtn>}
               </Row>
 
@@ -577,12 +609,12 @@ function BarConsole({ onError, ping }) {
               )}
 
               <div style={s.peekRow}>
-                <GhostBtn onClick={() => tryRead(sig.bartender_id)}>Try to read shifts</GhostBtn>
+                <GhostBtn onClick={() => tryRead(sig.bartender_id)}>Peek at the schedule</GhostBtn>
                 {rows && (
                   <span style={s.peekResult}>
                     {rows.length === 0
-                      ? "0 rows returned, blocked until granted"
-                      : `${rows.length} row${rows.length > 1 ? "s" : ""} returned, grant is active`}
+                      ? "0 rows — door's shut until they grant it"
+                      : `${rows.length} row${rows.length > 1 ? "s" : ""} — you're on the list`}
                   </span>
                 )}
               </div>
@@ -591,7 +623,7 @@ function BarConsole({ onError, ping }) {
         })}
       </Panel>
 
-      <Panel title="Media gallery">
+      <Panel title="The gallery">
         <MediaManager items={media} onUpload={uploadMedia} onDelete={removeMedia} busy={mediaBusy} />
       </Panel>
     </div>
@@ -653,8 +685,8 @@ function TipSheet({ name, close, send }) {
     <div style={s.sheetWrap} onClick={close}>
       <div style={s.sheet} className="slide" onClick={(e) => e.stopPropagation()}>
         <div style={s.sheetBar} />
-        <div style={s.sheetTitle}>Tip {name}</div>
-        <p style={s.sheetSub}>Goes directly to {name}. No cut taken from your tip.</p>
+        <div style={s.sheetTitle}>A little something for {name}</div>
+        <p style={s.sheetSub}>Straight to {name}, no middleman. The house skims nothing off the top.</p>
         <div style={s.amtGrid}>
           {[500, 1000, 2000, 5000].map((a) => (
             <button key={a} onClick={() => setAmt(a)} style={{ ...s.amtBtn, ...(amt === a ? s.amtOn : {}) }}>{money(a)}</button>
@@ -706,19 +738,19 @@ function MediaManager({ items, onUpload, onDelete, busy }) {
   return (
     <div style={{ padding: "14px 18px 16px" }}>
       <button onClick={() => inputRef.current?.click()} style={{ ...s.smallBtn, opacity: busy ? 0.6 : 1 }} disabled={busy}>
-        {busy ? <><Film size={13} /> Uploading…</> : <><Upload size={13} /> Add photo or video</>}
+        {busy ? <><Film size={13} /> Hanging it up…</> : <><Upload size={13} /> Add a photo or video</>}
       </button>
       <input ref={inputRef} type="file" accept="image/*,video/*" style={{ display: "none" }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ""; }} />
       {items.length === 0
-        ? <div style={{ ...s.emptyRow, paddingLeft: 0 }}>Nothing uploaded yet.</div>
+        ? <div style={{ ...s.emptyRow, paddingLeft: 0 }}>The gallery's bare.</div>
         : <div style={{ ...s.galleryGrid, marginTop: 13 }}>{items.map((m) => <MediaTile key={m.id} m={m} onDelete={onDelete} />)}</div>}
     </div>
   );
 }
 
 /* ----------------------------- styles ------------------------------ */
-const CSS = `
+const makeCSS = (C) => `
 * { box-sizing: border-box; }
 body { margin: 0; background: ${C.bg}; }
 button { cursor: pointer; font-family: 'Jost', sans-serif; border: none; background: none; }
@@ -734,20 +766,22 @@ input:focus, select:focus { border-color: ${C.brass}; }
 ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-thumb { background: ${C.line}; border-radius: 8px; }
 `;
 
-const s = {
+const makeStyles = (C) => ({
   root: { minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'Jost', sans-serif",
-    backgroundImage: "radial-gradient(circle at 50% -10%, rgba(201,163,91,0.09), transparent 55%)" },
+    backgroundImage: `radial-gradient(circle at 50% -10%, ${C.glow}, transparent 55%)` },
   topbar: { display: "flex", alignItems: "center", gap: 12, padding: "14px 22px", borderBottom: `1px solid ${C.line}`,
-    position: "sticky", top: 0, background: "rgba(20,16,11,0.9)", backdropFilter: "blur(12px)", zIndex: 20, flexWrap: "wrap", rowGap: 8 },
+    position: "sticky", top: 0, background: C.headerBg, backdropFilter: "blur(12px)", zIndex: 20, flexWrap: "wrap", rowGap: 8 },
   mark: { width: 30, height: 30, display: "grid", placeItems: "center", borderRadius: 8, border: `1px solid ${C.brass}`, color: C.brass, fontSize: 16 },
   brandName: { fontFamily: "'Cormorant Garamond', serif", fontWeight: 700, fontSize: 19, letterSpacing: 1.5 },
   live: { display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 20, padding: "4px 11px" },
   liveDot: { width: 7, height: 7, borderRadius: "50%", background: C.approve },
-  segmented: { display: "flex", gap: 3, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, padding: 3, marginLeft: "auto" },
+  segmented: { display: "flex", gap: 3, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, padding: 3 },
+  rightControls: { marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 },
+  themeBtn: { display: "grid", placeItems: "center", width: 36, height: 36, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 8 },
   seg: { display: "flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: 7, color: C.muted, fontSize: 13 },
   segOn: { background: C.brass, color: "#1a1206", fontWeight: 600 },
   signout: { display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", color: C.muted, border: `1px solid ${C.line}`, borderRadius: 8, padding: "7px 13px", fontSize: 13 },
-  err: { background: "rgba(191,91,79,0.15)", color: "#e7b0a8", borderBottom: `1px solid ${C.block}55`, padding: "10px 22px", fontSize: 13, cursor: "pointer" },
+  err: { background: `${C.block}22`, color: C.block, borderBottom: `1px solid ${C.block}55`, padding: "10px 22px", fontSize: 13, cursor: "pointer" },
 
   wrap: { maxWidth: 680, margin: "0 auto", padding: "26px 20px 70px" },
   wrapWide: { maxWidth: 1120, margin: "0 auto", padding: "26px 24px 70px" },
@@ -781,7 +815,7 @@ const s = {
   avMd: { width: 46, height: 46, borderRadius: "50%", background: "linear-gradient(145deg,#3a2c19,#241a10)", border: `1px solid ${C.brass}`,
     color: C.brassHi, display: "grid", placeItems: "center", fontFamily: "'Cormorant Garamond', serif", fontWeight: 700, fontSize: 16, flexShrink: 0 },
   barIcon: { width: 42, height: 42, borderRadius: 11, background: C.raised, border: `1px solid ${C.line}`, display: "grid", placeItems: "center", flexShrink: 0 },
-  avatarFallback: { borderRadius: "50%", background: "linear-gradient(145deg,#3a2c19,#241a10)", border: `1px solid ${C.brass}`, color: C.brassHi, display: "grid", placeItems: "center", fontFamily: "'Cormorant Garamond', serif", fontWeight: 700 },
+  avatarFallback: { borderRadius: "50%", background: "linear-gradient(145deg,#3a2c19,#241a10)", border: `1px solid ${C.brass}`, color: "#e7cc8e", display: "grid", placeItems: "center", fontFamily: "'Cormorant Garamond', serif", fontWeight: 700 },
   avatarEdit: { position: "absolute", bottom: -3, right: -3, width: 23, height: 23, borderRadius: "50%", background: C.brass, color: "#1a1206", display: "grid", placeItems: "center", border: `2px solid ${C.bg}` },
   selfCard: { display: "flex", alignItems: "center", gap: 12, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, padding: 12, marginBottom: 16 },
   galleryGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 },
@@ -876,4 +910,7 @@ const s = {
   toast: { position: "fixed", bottom: 26, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 8,
     background: C.raised, color: C.brassHi, border: `1px solid ${C.brass}66`, borderRadius: 30, padding: "11px 20px", fontSize: 13.5,
     boxShadow: "0 12px 40px rgba(0,0,0,0.5)", zIndex: 60, maxWidth: "90%" },
-};
+});
+
+let s = makeStyles(C);
+let CSS = makeCSS(C);
