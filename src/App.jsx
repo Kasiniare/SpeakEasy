@@ -1,10 +1,10 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "./lib/supabase.js";
 import * as q from "./lib/queries.js";
 import {
   Wine, User, Building2, Lock, Globe, Sparkles, Crown, Calendar, Heart,
   Check, X, ArrowDown, TrendingUp, Flame, Users, MapPin, ShieldCheck,
-  BadgeCheck, Clock, Eye, Wallet, Layers, LogOut, Gift
+  BadgeCheck, Clock, Eye, Wallet, Layers, LogOut, Gift, Camera, Upload, Film
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -166,32 +166,126 @@ function BartenderStudio({ onError, ping }) {
   const [followers, setFollowers] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [reqs, setReqs] = useState([]);
+  const [media, setMedia] = useState([]);
+  const [mediaBusy, setMediaBusy] = useState(false);
   const w = useViewport();
+  const desktop = w >= 980;
 
   const load = useCallback(async () => {
     try {
       const prof = await q.myBartenderProfile();
       setMe(prof);
       if (!prof) return;
-      const [m, f, sh, r] = await Promise.all([
-        q.myMetrics(prof.id), q.myFollowers(prof.id), q.myShifts(prof.id), q.myBarRequests(prof.id),
+      const [m, f, sh, r, md] = await Promise.all([
+        q.myMetrics(prof.id), q.myFollowers(prof.id), q.myShifts(prof.id), q.myBarRequests(prof.id), q.listBartenderMedia(prof.id),
       ]);
-      setMetrics(m); setFollowers(f); setShifts(sh); setReqs(r);
+      setMetrics(m); setFollowers(f); setShifts(sh); setReqs(r); setMedia(md);
     } catch (e) { onError(e.message); }
   }, [onError]);
   useEffect(() => { load(); }, [load]);
 
   const act = async (fn, msg) => { try { await fn(); if (msg) ping(msg); await load(); } catch (e) { onError(e.message); } };
+  const uploadMedia = async (file) => {
+    setMediaBusy(true);
+    try { await q.addBartenderMedia(me.id, file); ping("Added to gallery"); await load(); }
+    catch (e) { onError(e.message); } finally { setMediaBusy(false); }
+  };
+  const removeMedia = (m) => act(() => q.deleteMedia(m.id, m.storage_path), "Removed");
   if (!me) return <div style={s.wrap}><div style={s.note}>No bartender profile on this account.</div></div>;
 
   const pending = followers.filter((f) => f.status === "pending");
   const order = { pending: 0, approved: 1, demoted: 2, blocked: 3 };
   const sorted = [...followers].sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
 
+  const followersPanel = (
+    <Panel title={`Followers${pending.length ? ` · ${pending.length} awaiting you` : ""}`}>
+      {sorted.length === 0 && <Empty>No followers yet.</Empty>}
+      {sorted.map((f) => (
+        <Row key={f.id}>
+          <Avatar url={f.patron?.avatar_url} name={f.patron?.display_name} size={40} />
+          <div style={{ flex: 1 }}>
+            <div style={s.rowMain}>
+              {f.patron?.display_name ?? "Patron"}
+              {f.patron?.identity_verified && <BadgeCheck size={13} color={C.approve} />}
+            </div>
+            <div style={s.rowSub}>{f.tiers?.name} · <Status s={f.status} /></div>
+          </div>
+          {f.status === "pending" ? (
+            <div style={s.btnRow}>
+              <IconBtn tone="approve" onClick={() => act(() => q.decideSubscription(f.id, "approved"), "Approved")}><Check size={15} /></IconBtn>
+              <IconBtn tone="block" onClick={() => act(() => q.decideSubscription(f.id, "blocked"), "Blocked")}><X size={15} /></IconBtn>
+            </div>
+          ) : (
+            <div style={s.btnRow}>
+              <IconBtn tone="mute" onClick={() => act(() => q.decideSubscription(f.id, "demoted"), "Demoted")}><ArrowDown size={15} /></IconBtn>
+              <IconBtn tone="block" onClick={() => act(() => q.decideSubscription(f.id, "blocked"), "Blocked")}><X size={15} /></IconBtn>
+            </div>
+          )}
+        </Row>
+      ))}
+    </Panel>
+  );
+
+  const shiftsPanel = (
+    <Panel title="Shifts · set visibility">
+      {shifts.map((sh) => (
+        <Row key={sh.id}>
+          <DateChip iso={sh.starts_at} />
+          <div style={{ flex: 1 }}>
+            <div style={s.rowMain}>{sh.venues?.name ?? "Venue"}</div>
+            <div style={s.rowSub}>{when(sh.starts_at)}</div>
+          </div>
+          <ScopePill v={sh.visibility} r={sh.min_tier_rank} />
+          <select
+            value={scopeLabel(sh.visibility, sh.min_tier_rank)}
+            onChange={(e) => {
+              const o = SCOPES.find((x) => x.label === e.target.value);
+              act(() => q.setShiftScope(sh.id, o.visibility, o.rank), `Shift → ${o.label}`);
+            }}
+            style={s.select}>
+            {SCOPES.map((o) => <option key={o.label} value={o.label}>{o.label}</option>)}
+          </select>
+        </Row>
+      ))}
+    </Panel>
+  );
+
+  const mediaPanel = (
+    <Panel title="Media gallery">
+      <MediaManager items={media} onUpload={uploadMedia} onDelete={removeMedia} busy={mediaBusy} />
+    </Panel>
+  );
+
+  const barReqPanel = (
+    <Panel title="Bar requests">
+      {reqs.length === 0 && <Empty>No requests.</Empty>}
+      {reqs.map((r) => (
+        <Row key={r.id}>
+          <div style={s.barIcon}><Building2 size={18} color={C.brass} /></div>
+          <div style={{ flex: 1 }}>
+            <div style={s.rowMain}>
+              {r.bar_accounts?.name ?? "Bar"}
+              {r.offer_cents > 0 && <span style={s.offer}>{money(r.offer_cents)}/mo offered</span>}
+            </div>
+            <div style={s.rowSub}>Requests visibility of your shifts · <Status s={r.status} /></div>
+          </div>
+          {r.status === "requested" && (
+            <div style={s.btnRow}>
+              <SmallBtn onClick={() => act(() => q.decideGrant(r.id, "granted"), "Granted, revocable anytime")}><Check size={13} /> Grant</SmallBtn>
+              <GhostBtn onClick={() => act(() => q.decideGrant(r.id, "denied"), "Declined")}>Decline</GhostBtn>
+            </div>
+          )}
+          {r.status === "granted" && <GhostBtn onClick={() => act(() => q.decideGrant(r.id, "revoked"), "Revoked")}>Revoke</GhostBtn>}
+        </Row>
+      ))}
+    </Panel>
+  );
+
   return (
-    <div style={s.wrap}>
+    <div style={s.wrapWide}>
       <div style={s.studioHead} className="rise">
-        <div style={s.avLg}>{initials(me.display_name)}</div>
+        <Avatar url={me.avatar_url} name={me.display_name} size={60} editable
+          onPick={(f) => act(() => q.setBartenderAvatar(me.id, f), "Photo updated")} />
         <div style={{ flex: 1 }}>
           <h1 style={s.h1}>{me.display_name}</h1>
           <div style={s.subline}>{me.specialty}{me.handle ? ` · @${me.handle}` : ""}</div>
@@ -208,77 +302,14 @@ function BartenderStudio({ onError, ping }) {
         </div>
       )}
 
-      <Panel title={`Followers${pending.length ? ` · ${pending.length} awaiting you` : ""}`}>
-        {sorted.length === 0 && <Empty>No followers yet.</Empty>}
-        {sorted.map((f) => (
-          <Row key={f.id}>
-            <div style={s.avSm}>{initials(f.patron?.display_name)}</div>
-            <div style={{ flex: 1 }}>
-              <div style={s.rowMain}>
-                {f.patron?.display_name ?? "Patron"}
-                {f.patron?.identity_verified && <BadgeCheck size={13} color={C.approve} />}
-              </div>
-              <div style={s.rowSub}>{f.tiers?.name} · <Status s={f.status} /></div>
-            </div>
-            {f.status === "pending" ? (
-              <div style={s.btnRow}>
-                <IconBtn tone="approve" onClick={() => act(() => q.decideSubscription(f.id, "approved"), "Approved")}><Check size={15} /></IconBtn>
-                <IconBtn tone="block" onClick={() => act(() => q.decideSubscription(f.id, "blocked"), "Blocked")}><X size={15} /></IconBtn>
-              </div>
-            ) : (
-              <div style={s.btnRow}>
-                <IconBtn tone="mute" onClick={() => act(() => q.decideSubscription(f.id, "demoted"), "Demoted")}><ArrowDown size={15} /></IconBtn>
-                <IconBtn tone="block" onClick={() => act(() => q.decideSubscription(f.id, "blocked"), "Blocked")}><X size={15} /></IconBtn>
-              </div>
-            )}
-          </Row>
-        ))}
-      </Panel>
-
-      <Panel title="Shifts · set visibility">
-        {shifts.map((sh) => (
-          <Row key={sh.id}>
-            <DateChip iso={sh.starts_at} />
-            <div style={{ flex: 1 }}>
-              <div style={s.rowMain}>{sh.venues?.name ?? "Venue"}</div>
-              <div style={s.rowSub}>{when(sh.starts_at)}</div>
-            </div>
-            <ScopePill v={sh.visibility} r={sh.min_tier_rank} />
-            <select
-              value={scopeLabel(sh.visibility, sh.min_tier_rank)}
-              onChange={(e) => {
-                const o = SCOPES.find((x) => x.label === e.target.value);
-                act(() => q.setShiftScope(sh.id, o.visibility, o.rank), `Shift → ${o.label}`);
-              }}
-              style={s.select}>
-              {SCOPES.map((o) => <option key={o.label} value={o.label}>{o.label}</option>)}
-            </select>
-          </Row>
-        ))}
-      </Panel>
-
-      <Panel title="Bar requests">
-        {reqs.length === 0 && <Empty>No requests.</Empty>}
-        {reqs.map((r) => (
-          <Row key={r.id}>
-            <div style={s.barIcon}><Building2 size={18} color={C.brass} /></div>
-            <div style={{ flex: 1 }}>
-              <div style={s.rowMain}>
-                {r.bar_accounts?.name ?? "Bar"}
-                {r.offer_cents > 0 && <span style={s.offer}>{money(r.offer_cents)}/mo offered</span>}
-              </div>
-              <div style={s.rowSub}>Requests visibility of your shifts · <Status s={r.status} /></div>
-            </div>
-            {r.status === "requested" && (
-              <div style={s.btnRow}>
-                <SmallBtn onClick={() => act(() => q.decideGrant(r.id, "granted"), "Granted, revocable anytime")}><Check size={13} /> Grant</SmallBtn>
-                <GhostBtn onClick={() => act(() => q.decideGrant(r.id, "denied"), "Declined")}>Decline</GhostBtn>
-              </div>
-            )}
-            {r.status === "granted" && <GhostBtn onClick={() => act(() => q.decideGrant(r.id, "revoked"), "Revoked")}>Revoke</GhostBtn>}
-          </Row>
-        ))}
-      </Panel>
+      {desktop ? (
+        <div style={s.colGrid}>
+          <div>{followersPanel}{barReqPanel}</div>
+          <div>{shiftsPanel}{mediaPanel}</div>
+        </div>
+      ) : (
+        <>{followersPanel}{shiftsPanel}{mediaPanel}{barReqPanel}</>
+      )}
     </div>
   );
 }
@@ -291,6 +322,8 @@ function PatronApp({ onError, ping }) {
   const [tiers, setTiers] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [posts, setPosts] = useState([]);
+  const [media, setMedia] = useState([]);
+  const [myProfile, setMyProfile] = useState(null);
   const [tipOpen, setTipOpen] = useState(false);
 
   const loadTop = useCallback(async () => {
@@ -299,6 +332,7 @@ function PatronApp({ onError, ping }) {
       setBartenders(bs);
       setSel((cur) => cur ?? bs[0] ?? null);
       setSubs(await q.mySubscriptions());
+      setMyProfile(await q.getMyPatronProfile());
     } catch (e) { onError(e.message); }
   }, [onError]);
   useEffect(() => { loadTop(); }, [loadTop]);
@@ -306,8 +340,8 @@ function PatronApp({ onError, ping }) {
   const loadSel = useCallback(async () => {
     if (!sel) return;
     try {
-      const [t, sh, p] = await Promise.all([q.tiersFor(sel.id), q.visibleShifts(sel.id), q.visiblePosts(sel.id)]);
-      setTiers(t); setShifts(sh); setPosts(p);
+      const [t, sh, p, md] = await Promise.all([q.tiersFor(sel.id), q.visibleShifts(sel.id), q.visiblePosts(sel.id), q.listBartenderMedia(sel.id)]);
+      setTiers(t); setShifts(sh); setPosts(p); setMedia(md);
     } catch (e) { onError(e.message); }
   }, [sel, onError]);
   useEffect(() => { loadSel(); }, [loadSel]);
@@ -322,12 +356,22 @@ function PatronApp({ onError, ping }) {
 
   const discover = (
     <div style={desktop ? s.discCol : undefined}>
+      {myProfile && (
+        <div style={s.selfCard}>
+          <Avatar url={myProfile.avatar_url} name={myProfile.display_name} size={46} editable
+            onPick={(f) => act(() => q.setPatronAvatar(f), "Photo updated")} />
+          <div style={{ flex: 1 }}>
+            <div style={s.rowMain}>{myProfile.display_name}</div>
+            <div style={s.rowSub}>Your profile</div>
+          </div>
+        </div>
+      )}
       <div style={s.phoneEyebrow}>Discover</div>
       {bartenders.map((b) => {
         const sb = subFor(b.id);
         return (
           <button key={b.id} onClick={() => setSel(b)} style={{ ...s.discCard, ...(sel?.id === b.id ? s.discOn : {}) }}>
-            <div style={s.avMd}>{initials(b.display_name)}</div>
+            <Avatar url={b.avatar_url} name={b.display_name} size={46} />
             <div style={{ flex: 1, textAlign: "left" }}>
               <div style={s.rowMain}>{b.display_name}</div>
               <div style={s.rowSub}>{b.specialty}</div>
@@ -342,7 +386,9 @@ function PatronApp({ onError, ping }) {
   const detail = sel && (
     <div style={{ maxWidth: desktop ? 600 : "none" }}>
       <div style={{ ...s.profBlock, ...(desktop ? { borderTop: "none", marginTop: 0, paddingTop: 2 } : {}) }} className="rise">
-        <div style={s.avLg}>{initials(sel.display_name)}</div>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 11 }}>
+          <Avatar url={sel.avatar_url} name={sel.display_name} size={72} />
+        </div>
         <div style={s.profName}>{sel.display_name}</div>
         <div style={s.profHandle}>{sel.handle ? `@${sel.handle}` : ""} · {sel.specialty}</div>
         {approved && <span style={s.memberPill}><BadgeCheck size={13} /> {mySub.tiers?.name} member</span>}
@@ -403,6 +449,13 @@ function PatronApp({ onError, ping }) {
           <div style={{ flex: 1 }}><div style={s.rowMain}>{p.title}</div></div>
         </div>
       ))}
+
+      {media.length > 0 && (
+        <>
+          <div style={s.phoneSection}><Camera size={13} /> Gallery</div>
+          <MediaGallery items={media} />
+        </>
+      )}
     </div>
   );
 
@@ -437,6 +490,8 @@ function BarConsole({ onError, ping }) {
   const [signals, setSignals] = useState([]);
   const [grants, setGrants] = useState([]);
   const [peek, setPeek] = useState({});
+  const [media, setMedia] = useState([]);
+  const [mediaBusy, setMediaBusy] = useState(false);
   const w = useViewport();
 
   const load = useCallback(async () => {
@@ -444,13 +499,19 @@ function BarConsole({ onError, ping }) {
       const b = await q.myBar();
       setBar(b);
       setSignals(await q.talentSignals());
-      if (b) setGrants(await q.barGrants(b.bar_id));
+      if (b) { setGrants(await q.barGrants(b.bar_id)); setMedia(await q.listBarMedia(b.bar_id)); }
     } catch (e) { onError(e.message); }
   }, [onError]);
   useEffect(() => { load(); }, [load]);
 
   const grantFor = (bid) => grants.find((g) => g.bartender_id === bid);
   const act = async (fn, msg) => { try { await fn(); if (msg) ping(msg); await load(); } catch (e) { onError(e.message); } };
+  const uploadMedia = async (file) => {
+    setMediaBusy(true);
+    try { await q.addBarMedia(bar.bar_id, file); ping("Added to gallery"); await load(); }
+    catch (e) { onError(e.message); } finally { setMediaBusy(false); }
+  };
+  const removeMedia = (m) => act(() => q.deleteMedia(m.id, m.storage_path), "Removed");
   const tryRead = async (bid) => {
     try { const rows = await q.barVisibleShifts(bid); setPeek((p) => ({ ...p, [bid]: rows })); }
     catch (e) { onError(e.message); }
@@ -459,9 +520,10 @@ function BarConsole({ onError, ping }) {
   if (!bar) return <div style={s.wrap}><div style={s.note}>No bar membership on this account.</div></div>;
 
   return (
-    <div style={s.wrap}>
+    <div style={s.wrapWide}>
       <div style={s.studioHead} className="rise">
-        <div style={s.venueIcon}><Building2 size={22} color={C.brassHi} /></div>
+        <Avatar url={bar.bar_accounts?.avatar_url} name={bar.bar_accounts?.name} size={56} editable
+          onPick={(f) => act(() => q.setBarAvatar(bar.bar_id, f), "Logo updated")} />
         <div style={{ flex: 1 }}>
           <h1 style={s.h1}>{bar.bar_accounts?.name}</h1>
           <div style={s.subline}>Venue account · you see signals, not secrets</div>
@@ -527,6 +589,10 @@ function BarConsole({ onError, ping }) {
             </div>
           );
         })}
+      </Panel>
+
+      <Panel title="Media gallery">
+        <MediaManager items={media} onUpload={uploadMedia} onDelete={removeMedia} busy={mediaBusy} />
       </Panel>
     </div>
   );
@@ -600,6 +666,57 @@ function TipSheet({ name, close, send }) {
   );
 }
 
+function Avatar({ url, name, size = 44, editable, onPick }) {
+  const inputRef = useRef();
+  return (
+    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+      {url
+        ? <img src={url} alt={name || ""} style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", border: `1px solid ${C.brass}` }} />
+        : <div style={{ ...s.avatarFallback, width: size, height: size, fontSize: Math.round(size / 3) }}>{initials(name)}</div>}
+      {editable && (
+        <>
+          <button onClick={() => inputRef.current?.click()} style={s.avatarEdit} title="Change photo"><Camera size={13} /></button>
+          <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) onPick(f); e.target.value = ""; }} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function MediaTile({ m, onDelete }) {
+  return (
+    <figure style={s.galleryItem}>
+      {m.kind === "video"
+        ? <video src={q.mediaUrl(m.storage_path)} style={s.galleryMedia} controls preload="metadata" />
+        : <img src={q.mediaUrl(m.storage_path)} alt={m.caption || ""} style={s.galleryMedia} loading="lazy" />}
+      {m.caption && <figcaption style={s.galleryCap}>{m.caption}</figcaption>}
+      {onDelete && <button onClick={() => onDelete(m)} style={s.galleryDel} title="Remove"><X size={13} /></button>}
+    </figure>
+  );
+}
+
+function MediaGallery({ items }) {
+  if (!items?.length) return <Empty>No media yet.</Empty>;
+  return <div style={s.galleryGrid}>{items.map((m) => <MediaTile key={m.id} m={m} />)}</div>;
+}
+
+function MediaManager({ items, onUpload, onDelete, busy }) {
+  const inputRef = useRef();
+  return (
+    <div style={{ padding: "14px 18px 16px" }}>
+      <button onClick={() => inputRef.current?.click()} style={{ ...s.smallBtn, opacity: busy ? 0.6 : 1 }} disabled={busy}>
+        {busy ? <><Film size={13} /> Uploading…</> : <><Upload size={13} /> Add photo or video</>}
+      </button>
+      <input ref={inputRef} type="file" accept="image/*,video/*" style={{ display: "none" }}
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ""; }} />
+      {items.length === 0
+        ? <div style={{ ...s.emptyRow, paddingLeft: 0 }}>Nothing uploaded yet.</div>
+        : <div style={{ ...s.galleryGrid, marginTop: 13 }}>{items.map((m) => <MediaTile key={m.id} m={m} onDelete={onDelete} />)}</div>}
+    </div>
+  );
+}
+
 /* ----------------------------- styles ------------------------------ */
 const CSS = `
 * { box-sizing: border-box; }
@@ -633,6 +750,8 @@ const s = {
   err: { background: "rgba(191,91,79,0.15)", color: "#e7b0a8", borderBottom: `1px solid ${C.block}55`, padding: "10px 22px", fontSize: 13, cursor: "pointer" },
 
   wrap: { maxWidth: 680, margin: "0 auto", padding: "26px 20px 70px" },
+  wrapWide: { maxWidth: 1120, margin: "0 auto", padding: "26px 24px 70px" },
+  colGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, alignItems: "start" },
   note: { maxWidth: 680, margin: "40px auto", textAlign: "center", color: C.muted, fontSize: 14 },
 
   studioHead: { display: "flex", alignItems: "center", gap: 16, marginBottom: 22 },
@@ -662,6 +781,14 @@ const s = {
   avMd: { width: 46, height: 46, borderRadius: "50%", background: "linear-gradient(145deg,#3a2c19,#241a10)", border: `1px solid ${C.brass}`,
     color: C.brassHi, display: "grid", placeItems: "center", fontFamily: "'Cormorant Garamond', serif", fontWeight: 700, fontSize: 16, flexShrink: 0 },
   barIcon: { width: 42, height: 42, borderRadius: 11, background: C.raised, border: `1px solid ${C.line}`, display: "grid", placeItems: "center", flexShrink: 0 },
+  avatarFallback: { borderRadius: "50%", background: "linear-gradient(145deg,#3a2c19,#241a10)", border: `1px solid ${C.brass}`, color: C.brassHi, display: "grid", placeItems: "center", fontFamily: "'Cormorant Garamond', serif", fontWeight: 700 },
+  avatarEdit: { position: "absolute", bottom: -3, right: -3, width: 23, height: 23, borderRadius: "50%", background: C.brass, color: "#1a1206", display: "grid", placeItems: "center", border: `2px solid ${C.bg}` },
+  selfCard: { display: "flex", alignItems: "center", gap: 12, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, padding: 12, marginBottom: 16 },
+  galleryGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 },
+  galleryItem: { position: "relative", margin: 0, borderRadius: 12, overflow: "hidden", border: `1px solid ${C.line}`, background: C.raised },
+  galleryMedia: { width: "100%", aspectRatio: "1 / 1", objectFit: "cover", display: "block" },
+  galleryCap: { position: "absolute", bottom: 0, left: 0, right: 0, padding: "6px 8px", fontSize: 11, color: C.text, background: "linear-gradient(transparent, rgba(0,0,0,0.78))" },
+  galleryDel: { position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: C.text, display: "grid", placeItems: "center", border: `1px solid ${C.line}` },
 
   dateChip: { width: 46, textAlign: "center", border: `1px solid ${C.line}`, borderRadius: 9, padding: "6px 0", flexShrink: 0 },
   dDay: { fontSize: 10, color: C.brass, letterSpacing: 1, textTransform: "uppercase" },

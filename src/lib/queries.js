@@ -70,7 +70,7 @@ export async function myFollowers(bartenderId) {
     const pp = unwrap(
       await supabase
         .from("patron_profiles")
-        .select("user_id, display_name, identity_verified")
+        .select("user_id, display_name, identity_verified, avatar_url")
         .in("user_id", ids)
     );
     profilesByUser = Object.fromEntries(pp.map((p) => [p.user_id, p]));
@@ -138,7 +138,7 @@ export async function discoverBartenders() {
   return unwrap(
     await supabase
       .from("bartender_profiles")
-      .select("id, display_name, handle, specialty, bio")
+      .select("id, display_name, handle, specialty, bio, avatar_url")
       .eq("discoverable", true)
   );
 }
@@ -232,7 +232,7 @@ export async function myBar() {
   return unwrap(
     await supabase
       .from("bar_members")
-      .select("bar_id, bar_role, bar_accounts(name, advertiser)")
+      .select("bar_id, bar_role, bar_accounts(name, advertiser, avatar_url)")
       .maybeSingle()
   );
 }
@@ -288,4 +288,86 @@ export async function barVisibleShifts(bartenderId) {
       .eq("bartender_id", bartenderId)
       .order("starts_at")
   );
+}
+
+// ---------- Storage: avatars & media ----------
+function extOf(file) {
+  const m = /\.([a-z0-9]+)$/i.exec(file.name || "");
+  return (m ? m[1] : "bin").toLowerCase();
+}
+
+async function uploadToBucket(bucket, file) {
+  const uid = await currentUserId();
+  if (!uid) throw new Error("not signed in");
+  // Path must start with the uid folder so storage policies allow the write.
+  const path = `${uid}/${crypto.randomUUID()}.${extOf(file)}`;
+  const { error } = await supabase.storage.from(bucket).upload(path, file, {
+    cacheControl: "3600",
+    upsert: false,
+    contentType: file.type || undefined,
+  });
+  if (error) throw error;
+  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+  return { path, publicUrl: data.publicUrl };
+}
+
+export function mediaUrl(path) {
+  return supabase.storage.from("media").getPublicUrl(path).data.publicUrl;
+}
+
+export async function setBartenderAvatar(bartenderId, file) {
+  const { publicUrl } = await uploadToBucket("avatars", file);
+  return unwrap(
+    await supabase.from("bartender_profiles").update({ avatar_url: publicUrl }).eq("id", bartenderId).select()
+  );
+}
+export async function setBarAvatar(barId, file) {
+  const { publicUrl } = await uploadToBucket("avatars", file);
+  return unwrap(
+    await supabase.from("bar_accounts").update({ avatar_url: publicUrl }).eq("id", barId).select()
+  );
+}
+export async function setPatronAvatar(file) {
+  const uid = await currentUserId();
+  const { publicUrl } = await uploadToBucket("avatars", file);
+  return unwrap(
+    await supabase.from("patron_profiles").update({ avatar_url: publicUrl }).eq("user_id", uid).select()
+  );
+}
+export async function getMyPatronProfile() {
+  const uid = await currentUserId();
+  return unwrap(
+    await supabase.from("patron_profiles").select("user_id, display_name, avatar_url, identity_verified").eq("user_id", uid).maybeSingle()
+  );
+}
+
+export async function listBartenderMedia(bartenderId) {
+  return unwrap(
+    await supabase.from("media").select("id, kind, storage_path, caption, created_at")
+      .eq("bartender_id", bartenderId).order("created_at", { ascending: false })
+  );
+}
+export async function listBarMedia(barId) {
+  return unwrap(
+    await supabase.from("media").select("id, kind, storage_path, caption, created_at")
+      .eq("bar_id", barId).order("created_at", { ascending: false })
+  );
+}
+export async function addBartenderMedia(bartenderId, file, caption = "") {
+  const kind = (file.type || "").startsWith("video") ? "video" : "photo";
+  const { path } = await uploadToBucket("media", file);
+  return unwrap(
+    await supabase.from("media").insert({ bartender_id: bartenderId, kind, storage_path: path, caption }).select()
+  );
+}
+export async function addBarMedia(barId, file, caption = "") {
+  const kind = (file.type || "").startsWith("video") ? "video" : "photo";
+  const { path } = await uploadToBucket("media", file);
+  return unwrap(
+    await supabase.from("media").insert({ bar_id: barId, kind, storage_path: path, caption }).select()
+  );
+}
+export async function deleteMedia(id, storagePath) {
+  await supabase.storage.from("media").remove([storagePath]);
+  return unwrap(await supabase.from("media").delete().eq("id", id).select());
 }

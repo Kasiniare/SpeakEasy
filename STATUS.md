@@ -85,8 +85,12 @@ Full definitions and every policy are in supabase/migrations/.
 - 0003_stripe.sql: stripe_account_id on bartenders, payment status/fee fields.
 - 0004_signals_separation.sql: splits shareable signals from private metrics;
   replaces the SECURITY DEFINER view with a SECURITY INVOKER view over an
-  RLS-protected table (resolves the Supabase advisor finding). All four are
-  applied to the live project as of this date.
+  RLS-protected table (resolves the Supabase advisor finding).
+- 0005_avatars_media.sql: avatar_url on the three profile tables; a media table
+  (photo/video gallery) with owner-only write and audience-aware read RLS; two
+  public Storage buckets (avatars, media) with owner-folder write policies.
+  0001-0004 are applied to the live project; apply 0005 to enable avatars and
+  galleries.
 
 To apply a migration: open the file, copy its contents (not the path), paste
 into the SQL editor, Run. Schema changes report success with no rows.
@@ -142,6 +146,10 @@ Stripe account yet.
   decision to confirm before launch.
 - Seed inserts directly into auth.users, which works but is dev-shaped; real
   users should be created through Auth.
+- Media storage buckets are public-read in this PoC, so the raw file bytes are
+  reachable by anyone with the URL; the media table RLS gates listing only.
+  Production should use a private bucket with signed URLs. Media is also not yet
+  tier-gated (gallery is visible to anyone who can see the bartender).
 - Loyalty program mechanics and advertising/campaign targeting are modeled in
   the architecture spec but not built.
 - No automated tests yet.
